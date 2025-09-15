@@ -24,7 +24,8 @@ crossbeam-queue = "0.3.6"
 tracing-chrometrace = "0.1.19"
 
 [dev-dependencies]
-criterion = "0.4"
+criterion = "0.7"
+tempfile= "3.22.0"
 
 [[bench]]
 name = "benchmark"
