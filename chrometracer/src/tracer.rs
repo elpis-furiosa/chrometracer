@@ -188,58 +188,40 @@ impl Drop for Span {
 
 #[macro_export]
 macro_rules! span {
-    (name: $name:expr, is_async: $is_async:expr) => {
+    (@impl $name: expr, $tid: expr, $is_async: expr, $args: expr) => {
         $crate::Span {
             name: $name.into(),
-            args: "".into(),
-            tid: None,
+            args: $args.into(),
+            tid: $tid,
             from: chrometracer::current(|tracer| tracer.map(|t| t.start.elapsed()))
                 .unwrap_or_default(),
             is_async: $is_async,
         }
+    };
+    (name: $name:expr, is_async: $is_async:expr) => {
+        $crate::span!(@impl $name, None, $is_async, "")
     };
     (name: $name:expr, is_async: $is_async:expr, args: $args:expr) => {
-        $crate::Span {
-            name: $name.into(),
-            args: $args.into(),
-            tid: None,
-            from: chrometracer::current(|tracer| tracer.map(|t| t.start.elapsed()))
-                .unwrap_or_default(),
-            is_async: $is_async,
-        }
+        $crate::span!(@impl $name, None, $is_async, $args)
     };
     (name: $name:expr, tid: $tid:expr, is_async: $is_async:expr) => {
-        $crate::Span {
-            name: $name.into(),
-            args: "".into(),
-            tid: Some($tid as u64),
-            from: chrometracer::current(|tracer| tracer.map(|t| t.start.elapsed()))
-                .unwrap_or_default(),
-            is_async: $is_async,
-        }
+        $crate::span!(@impl $name, Some($tid as u64), $is_async, "")
     };
     (name: $name:expr, tid: $tid:expr, is_async: $is_async:expr, args: $args:expr) => {
-        $crate::Span {
-            name: $name.into(),
-            args: $args.into(),
-            tid: Some($tid as u64),
-            from: chrometracer::current(|tracer| tracer.map(|t| t.start.elapsed()))
-                .unwrap_or_default(),
-            is_async: $is_async,
-        }
+        $crate::span!(@impl $name, Some($tid as u64), $is_async, $args);
     };
 }
 
 #[macro_export]
 macro_rules! event {
-    (name: $name:expr, tid: $tid:expr, from: $from:expr, is_async: $is_async:expr) => {
+    (@impl $name:expr, $tid:expr, $from:expr, $to:expr, $is_async:expr, $args:expr) => {
         $crate::current(|tracer| {
             if let Some(tracer) = tracer {
                 let event = $crate::SlimEvent {
-                    name: $name,
-                    args: "".into(),
+                    name: $name.into(),
+                    args: $args.into(),
                     from: $from,
-                    to: tracer.start.elapsed(),
+                    to: $to.unwrap_or_else(|| tracer.start.elapsed()),
                     is_async: $is_async,
                     tid: $tid.unwrap_or(tracer.tid),
                 };
@@ -247,54 +229,18 @@ macro_rules! event {
                 tracer.trace(event);
             }
         })
+    };
+    (name: $name:expr, tid: $tid:expr, from: $from:expr, is_async: $is_async:expr) => {
+        $crate::event!(@impl $name, $tid, $from, None, $is_async, "")
     };
     (name: $name:expr, tid: $tid:expr, from: $from:expr, is_async: $is_async:expr, args: $args:expr) => {
-        $crate::current(|tracer| {
-            if let Some(tracer) = tracer {
-                let event = $crate::SlimEvent {
-                    name: $name,
-                    args: $args.into(),
-                    from: $from,
-                    to: tracer.start.elapsed(),
-                    is_async: $is_async,
-                    tid: $tid.unwrap_or(tracer.tid),
-                };
-
-                tracer.trace(event);
-            }
-        })
+        $crate::event!(@impl $name, $tid, $from, None, $is_async, $args)
     };
     (name: $name:expr, tid: $tid:expr, from: $from:expr, to: $to:expr, is_async: $is_async:expr) => {
-        $crate::current(|tracer| {
-            if let Some(tracer) = tracer {
-                let event = $crate::SlimEvent {
-                    name: $name,
-                    args: "".into(),
-                    from: $from.duration_since(tracer.start),
-                    to: $to.duraion_since(tracer.start),
-                    is_async: $is_async,
-                    tid: $tid.unwrap_or(tracer.tid),
-                };
-
-                tracer.trace(event);
-            }
-        })
+        $crate::event!(@impl $name, $tid, $from, Some($to), $is_async, "")
     };
     (name: $name:expr, tid: $tid:expr, from: $from:expr, to: $to:expr, is_async: $is_async:expr, args: $args:expr) => {
-        $crate::current(|tracer| {
-            if let Some(tracer) = tracer {
-                let event = $crate::SlimEvent {
-                    name: $name,
-                    args: $args.into(),
-                    from: $from.duration_since(tracer.start),
-                    to: $to.duraion_since(tracer.start),
-                    is_async: $is_async,
-                    tid: $tid.unwrap_or(tracer.tid),
-                };
-
-                tracer.trace(event);
-            }
-        })
+        $crate::event!(@impl $name, $tid, $from, Some($to), $is_async, $args)
     };
 }
 
@@ -305,7 +251,6 @@ mod tests {
     #[test]
     fn event() {
         let _guard = crate::builder().init();
-
         event!(name: Cow::Borrowed("hello"), tid: None, from: std::time::Duration::from_secs(1), is_async: true);
     }
 
