@@ -246,16 +246,59 @@ macro_rules! event {
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::Cow;
+    use super::*;
 
-    #[test]
-    fn event() {
-        let _guard = crate::builder().init();
-        event!(name: Cow::Borrowed("hello"), tid: None, from: std::time::Duration::from_secs(1), is_async: true);
+    use std::borrow::Cow;
+    use tempfile::{tempdir, TempDir};
+
+    fn initialize_profiler(tmp_dir: &TempDir) -> ChromeTracerGuard {
+        crate::builder()
+            .trace_file(
+                tmp_dir
+                    .path()
+                    .join("profile.json")
+                    .into_os_string()
+                    .into_string()
+                    .unwrap(),
+            )
+            .init()
     }
 
     #[test]
-    fn without_init() {
+    fn test_event_without_init() {
         event!(name: Cow::Borrowed("hello"), tid: None, from: std::time::Duration::from_secs(1), is_async: false);
+    }
+
+    #[test]
+    fn test_event() {
+        let tmp_dir = tempdir().unwrap();
+        let guard = initialize_profiler(&tmp_dir);
+
+        let mut handles = vec![];
+        for tid in 0..10 {
+            let cur_tid = tid;
+            handles.push(thread::spawn(move || {
+                for _ in 0..10 {
+                    Span {
+                        name: "TEST_SPAN".into(),
+                        args: "".into(),
+                        tid: Some(cur_tid),
+                        from: current(|tracer| tracer.map(|t| t.start.elapsed()))
+                            .unwrap_or_default(),
+                        is_async: false,
+                    };
+                }
+            }));
+        }
+
+        handles
+            .into_iter()
+            .for_each(|handle| handle.join().unwrap());
+
+        drop(guard);
+
+        let contents = std::fs::read_to_string(tmp_dir.path().join("profile.json")).unwrap();
+        let line_count = contents.lines().count();
+        assert_eq!(line_count, 102, "expected 102 lines (header + 100 events + closing bracket), got {line_count}\nfile contents:\n{contents}");
     }
 }
